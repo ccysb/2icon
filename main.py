@@ -26,6 +26,9 @@ except ImportError:
     HAS_TKINTERDND2 = False
 
 
+# 本项目的 GitHub 仓库地址（界面右下角入口 + 关于对话框共用）
+GITHUB_REPO_URL = "https://github.com/pcoof/2icon"
+
 # 常用常量（消除散落各处的重复字面量）
 ICON_PRESET_SIZES = [16, 32, 48, 64, 96, 128, 256, 512]
 # ICO 容器单帧上限：目录项的宽高字段只有 1 字节，0 代表 256，故最大 256
@@ -92,11 +95,23 @@ def check_svg_support():
     return support_info
 
 class ImageToIcoConverter(TkinterDnD.Tk):
+    # 固定窗口尺寸（布局按此尺寸设计，不允许用户缩放）
+    WINDOW_WIDTH = 1000
+    WINDOW_HEIGHT = 700
+
     def __init__(self):
         super().__init__()
         self.title("图像/文件图标提取工具")
-        self.geometry("800x600")
-        self.minsize(1000, 700)
+        self.geometry(f"{self.WINDOW_WIDTH}x{self.WINDOW_HEIGHT}")
+        self.minsize(self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
+        self.maxsize(self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
+        # 固定尺寸：禁止拖拽边框缩放/最大化
+        self.resizable(False, False)
+        # 工具窗口样式：标题栏只保留关闭按钮，去掉最小化/最大化
+        try:
+            self.attributes("-toolwindow", True)
+        except Exception as e:
+            print(f"提示: 无法设置工具窗口样式: {e}")
         
         # 设置窗口与任务栏图标
         self._set_window_icon()
@@ -402,6 +417,21 @@ class ImageToIcoConverter(TkinterDnD.Tk):
         self.progress_bar = ctk.CTkProgressBar(status_frame, width=200)
         self.progress_bar.pack(side="left", padx=10, pady=10)
         self.progress_bar.pack_forget()  # 初始隐藏
+        # GitHub 仓库入口（最右侧）
+        self.github_button = ctk.CTkButton(
+            status_frame,
+            text="GitHub ↗",
+            command=self.open_github,
+            width=80,
+            height=28,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent",
+            hover_color=("gray85", "gray20"),
+            border_width=1,
+            border_color=("gray70", "gray38"),
+            text_color=("gray20", "gray85"),
+        )
+        self.github_button.pack(side="right", padx=(5, 12), pady=10)
         # 关于按钮
         about_button = ctk.CTkButton(
             status_frame,
@@ -450,9 +480,18 @@ class ImageToIcoConverter(TkinterDnD.Tk):
         # 让原生标题栏颜色跟随主题
         self._apply_titlebar_theme(self.is_dark_theme)
 
+    def open_github(self):
+        """在系统浏览器中打开项目仓库"""
+        import webbrowser
+        try:
+            webbrowser.open(GITHUB_REPO_URL)
+            self.status.set("已在浏览器中打开项目主页")
+        except Exception as e:
+            messagebox.showerror("错误", f"无法打开浏览器:\n{e}")
+
     def show_about(self):
         """显示关于对话框"""
-        about_text = """图像/文件图标提取工具 v1.0
+        about_text = f"""图像/文件图标提取工具 v1.0
 功能特性：
 • 支持多种图像格式 (PNG, JPG, WEBP, SVG)
 • 从可执行文件提取图标 (EXE, DLL)
@@ -467,6 +506,9 @@ class ImageToIcoConverter(TkinterDnD.Tk):
 主题 - 切换明暗主题
 清理 - 手动清理临时文件
 关于 - 显示此帮助信息
+GitHub - 打开项目仓库
+
+项目地址：{GITHUB_REPO_URL}
 
 © 2025 图标提取工具
 使用 CustomTkinter 构建"""
@@ -801,13 +843,15 @@ class ImageToIcoConverter(TkinterDnD.Tk):
             bit_info = BIT_DEPTH_INFO.get(img.mode, img.mode)
 
             icon_size_text = f"{width}x{height}\n{bit_info}"
-            # 创建图标容器框架
-            icon_container = ctk.CTkFrame(self.icon_scrollable_frame)
+            # 创建图标容器（透明底色，不画格子背景）
+            icon_container = ctk.CTkFrame(
+                self.icon_scrollable_frame, fg_color="transparent"
+            )
             icon_container.grid(
                 row=row, column=col, padx=padding, pady=padding, sticky="nsew"
             )
 
-            # 创建按钮
+            # 创建按钮（透明底色，仅选中时出现描边）
             btn = ctk.CTkButton(
                 icon_container,
                 image=ctk_image,
@@ -817,6 +861,9 @@ class ImageToIcoConverter(TkinterDnD.Tk):
                 width=icon_size + 24,
                 height=icon_size + 54,  # 增加高度以适应两行文本
                 font=ctk.CTkFont(size=10),
+                fg_color="transparent",
+                hover_color=("gray88", "gray18"),
+                border_width=0,
                 text_color=("gray10", "white"),  # 日间深色/夜间白色，确保可见
             )
             btn.ctk_image = ctk_image  # 保持引用，防止被垃圾回收
@@ -1190,16 +1237,21 @@ class ImageToIcoConverter(TkinterDnD.Tk):
     def select_icon(self, index):
         # 更新选中的图标索引
         self.selected_icon_index.set(index)
-        # 更新按钮样式
+        # 更新按钮样式（无格子底色，选中用描边+高亮文字表达）
         for i, btn in enumerate(self.icon_buttons):
             if i == index:
                 btn.configure(
-                    fg_color=("#3B82F6", "#1E40AF"),
+                    fg_color="transparent",
                     border_width=2,
-                    border_color=("#60A5FA", "#3B82F6"),
-                )  # 选中状态的颜色
+                    border_color=("#3B82F6", "#60A5FA"),
+                    text_color=("#1D4ED8", "#93C5FD"),
+                )  # 选中状态
             else:
-                btn.configure(fg_color=("gray90", "gray13"), border_width=0)  # 默认颜色
+                btn.configure(
+                    fg_color="transparent",
+                    border_width=0,
+                    text_color=("gray10", "white"),
+                )  # 默认状态
         # 更新预览
         self.update_preview()
 
