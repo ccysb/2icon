@@ -15,6 +15,8 @@ use windows::Win32::System::LibraryLoader::{
     LOAD_LIBRARY_AS_DATAFILE,
 };
 
+use crate::model::HIGH_QUALITY_MIN;
+
 const RT_ICON: u16 = 3;
 const RT_GROUP_ICON: u16 = 14;
 
@@ -35,6 +37,14 @@ pub struct ExtractedIcon {
     pub width: u32,
     /// 高
     pub height: u32,
+}
+
+/// 一次提取的完整结果
+pub struct Extraction {
+    /// 最终展示的图标（已按过滤规则筛选并截断）
+    pub icons: Vec<ExtractedIcon>,
+    /// 过滤前解码出的帧数，用来区分“文件本来就没有图标”和“被质量过滤挡光了”
+    pub total: usize,
 }
 
 /// 资源名：整数 ID 或字符串名
@@ -234,9 +244,10 @@ fn decode_icon_blob(data: &[u8], width: u32, height: u32, bit_count: u16) -> Opt
 
 /// 从 EXE/DLL 提取图标。
 ///
-/// `quality_filter` 为真时只保留 24×24 以上且位深 ≥ 4 的图标（若全部被过滤则
-/// 至少保留一个）；无论是否过滤，都按旧版的数量上限截断。
-pub fn extract_icons(path: &Path, quality_filter: bool) -> Result<Vec<ExtractedIcon>, String> {
+/// `quality_filter` 为真时只保留边长 ≥ 128 且位深 ≥ 4 的图标——小尺寸帧在
+/// 放大后必定模糊，对“拿图标去用”的场景没有价值，直接不展示；真正需要看
+/// 全部帧时由调用方关掉过滤重新提取。
+pub fn extract_icons(path: &Path, quality_filter: bool) -> Result<Extraction, String> {
     let path_wide = wide(path);
     let module = unsafe {
         LoadLibraryExW(PCWSTR(path_wide.as_ptr()), None, LOAD_LIBRARY_AS_DATAFILE)
@@ -332,18 +343,17 @@ pub fn extract_icons(path: &Path, quality_filter: bool) -> Result<Vec<ExtractedI
         });
     }
 
-    // 5) 质量过滤：至少 24×24 且位深 ≥ 4；若全被过滤掉则保留最高分的一个
+    // 5) 质量过滤：边长须达到 128 且位深 ≥ 4；全部被挡掉时如实返回空列表，
+    //    由上层提示用户关掉过滤，不拿小图凑数
+    let total = decoded.len();
     let selected: Vec<ExtractedIcon> = if quality_filter {
-        let filtered: Vec<ExtractedIcon> = decoded
+        decoded
             .iter()
-            .filter(|i| i.width >= 24 && i.height >= 24 && score_bpp(i) >= 4)
+            .filter(|i| {
+                i.width >= HIGH_QUALITY_MIN && i.height >= HIGH_QUALITY_MIN && score_bpp(i) >= 4
+            })
             .map(clone_icon)
-            .collect();
-        if filtered.is_empty() {
-            decoded.first().map(clone_icon).into_iter().collect()
-        } else {
-            filtered
-        }
+            .collect()
     } else {
         decoded.iter().map(clone_icon).collect()
     };
@@ -353,7 +363,10 @@ pub fn extract_icons(path: &Path, quality_filter: bool) -> Result<Vec<ExtractedI
     } else {
         LIMIT_ALL
     };
-    Ok(selected.into_iter().take(limit).collect())
+    Ok(Extraction {
+        icons: selected.into_iter().take(limit).collect(),
+        total,
+    })
 }
 
 fn score_bpp(icon: &ExtractedIcon) -> u16 {
@@ -410,10 +423,26 @@ mod tests {
         if !dll.exists() {
             return;
         }
-        let icons = extract_icons(dll, false).expect("提取 shell32 图标");
-        assert!(!icons.is_empty(), "shell32 应该能提取到图标");
-        assert!(icons.iter().all(|i| i.width > 0 && i.height > 0));
+        let extraction = extract_icons(dll, false).expect("提取 shell32 图标");
+        assert!(extraction.total > 0, "shell32 应该能提取到图标");
+        assert!(extraction.icons.iter().all(|i| i.width > 0 && i.height > 0));
         // 未过滤时上限 20
-        assert!(icons.len() <= LIMIT_ALL);
+        assert!(extraction.icons.len() <= LIMIT_ALL);
+    }
+
+    #[test]
+    fn quality_filter_keeps_only_large_icons() {
+        let dll = Path::new(r"C:\Windows\System32\shell32.dll");
+        if !dll.exists() {
+            return;
+        }
+        let extraction = extract_icons(dll, true).expect("提取 shell32 图标");
+        assert!(
+            extraction
+                .icons
+                .iter()
+                .all(|i| i.width >= HIGH_QUALITY_MIN && i.height >= HIGH_QUALITY_MIN),
+            "过滤模式下不应出现小于 {HIGH_QUALITY_MIN} 的帧"
+        );
     }
 }

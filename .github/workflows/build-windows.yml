@@ -63,6 +63,17 @@ jobs:
           if ($size -lt 1MB) { Write-Error "dist/2icon.exe 体积异常: $size 字节"; exit 1 }
           Write-Host "2icon.exe: $size 字节"
 
+      # exe 图标靠 build.rs 调 rc.exe / llvm-rc / windres 嵌入；
+      # 换 runner 镜像后若三者都缺失，构建会静默退化，这里把它变成硬失败
+      - name: Verify exe icon resource
+        shell: pwsh
+        run: |
+          python tools/pe_resources.py dist/2icon.exe
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "dist/2icon.exe 缺少 RT_GROUP_ICON 图标资源"
+            exit 1
+          }
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:

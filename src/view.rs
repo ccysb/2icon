@@ -16,12 +16,24 @@ const GRID_COLUMNS: usize = 4;
 const TILE_WIDTH: f32 = 96.0;
 /// 单个格子高度（缩略图 + 两行文字 + 内边距）
 const TILE_HEIGHT: f32 = 128.0;
+/// 右侧面板的目标宽度。
+///
+/// 实际绘制宽度取「目标宽度」与「行内控件最小宽度」的较大值（当前约 364dp），
+/// 想进一步收窄得先把行内的最小宽度继续压小。
+const PANEL_WIDTH: f32 = 344.0;
+/// 自定义尺寸输入框宽度（剩余宽度留给两个按钮）
+const CUSTOM_BOX_WIDTH: f32 = 54.0;
 
 fn preset_row(sizes: &[u32], current: u32) -> ViewNode<Msg> {
     let cells = sizes
         .iter()
         .map(|size| {
             radio_button(format!("{size}x{size}"), current == *size)
+                // 单选项自带 120dp 的默认最小宽度，四个就把整栏顶宽了；
+                // 改给固定宽度，一行四个刚好落在收窄后的面板里
+                // radio 自带 120dp 最小宽度，不清掉四个就会把整栏顶宽；
+                // 清掉后交给 flex 均分，正好铺满收窄后的面板
+                .min_width(Dp::new(0.0))
                 .flex(1.0)
                 .on_choose(Msg::Preset(*size))
         })
@@ -157,16 +169,27 @@ fn control_panel(app: &App) -> ViewNode<Msg> {
         preset_row(&PRESET_SIZES[4..], data.width),
     ];
 
-    // 标签、输入框、应用、默认收在同一行（输入框均分剩余宽度）
+    // 标签、输入框、应用、默认收在同一行；输入框用固定窄宽，
+    // 否则文本框的默认最小宽度会把整栏顶开
     let custom_row = row([
-        text("自定义尺寸:").width(Dp::new(100.0)),
-        textbox(&data.custom_w).flex(1.0).on_change(Msg::CustomW),
+        text("自定义尺寸:").width(Dp::new(96.0)),
+        textbox(&data.custom_w)
+            .width(Dp::new(CUSTOM_BOX_WIDTH))
+            .min_width(Dp::new(0.0))
+            .on_change(Msg::CustomW),
         text("x"),
-        textbox(&data.custom_h).flex(1.0).on_change(Msg::CustomH),
+        textbox(&data.custom_h)
+            .width(Dp::new(CUSTOM_BOX_WIDTH))
+            .min_width(Dp::new(0.0))
+            .on_change(Msg::CustomH),
         button("应用")
             .width(Dp::new(48.0))
+            .min_width(Dp::new(0.0))
             .on_click(Msg::ApplyCustom),
-        button("默认").width(Dp::new(48.0)).on_click(Msg::ResetSize),
+        button("默认")
+            .width(Dp::new(48.0))
+            .min_width(Dp::new(0.0))
+            .on_click(Msg::ResetSize),
     ])
     .gap(Dp::new(6.0))
     .height(Dp::new(28.0));
@@ -179,13 +202,23 @@ fn control_panel(app: &App) -> ViewNode<Msg> {
             .image_fit(ZsImageFit::Contain),
         None => column([text("（无预览）")])
             .height(Dp::new(preview_size))
-            .width(Dp::new(preview_size)),
+            .width(Dp::new(preview_size))
+            .align(ViewAlign::Center)
+            .justify(ViewJustify::Center),
     };
+    // 预览框是固定方框，外面包一层 row 才能在这一栏里水平居中
+    let preview_row = row([preview])
+        .justify(ViewJustify::Center)
+        .height(Dp::new(preview_size));
 
     let format_row = row(Format::ALL
         .iter()
         .map(|format| {
-            radio_button(format.label(), data.format == *format).on_choose(Msg::Format(*format))
+            radio_button(format.label(), data.format == *format)
+                // 同预设：不给固定宽度就会被 120dp 的最小宽度撑开
+                .min_width(Dp::new(0.0))
+                .flex(1.0)
+                .on_choose(Msg::Format(*format))
         })
         .collect::<Vec<_>>())
     .gap(Dp::new(12.0))
@@ -209,14 +242,15 @@ fn control_panel(app: &App) -> ViewNode<Msg> {
 
     let info = text(data.info_text()).height(Dp::new(30.0));
     let filter = data.filter_quality;
+    let filter_label = format!("仅显示高质量图标（≥{}px）", crate::model::HIGH_QUALITY_MIN);
 
     column([
-        row([checkbox("仅显示高质量图标", filter).on_toggle(Msg::Filter)]).height(Dp::new(24.0)),
+        row([checkbox(filter_label, filter).on_toggle(Msg::Filter)]).height(Dp::new(24.0)),
         text("输出尺寸"),
         size_rows[0].clone(),
         size_rows[1].clone(),
         custom_row,
-        preview,
+        preview_row,
         text("输出格式"),
         format_row,
         quality_row,
@@ -297,7 +331,7 @@ pub fn view(app: &App) -> ViewNode<Msg> {
         ])
         .gap(Dp::new(8.0)),
     ])
-    .width(Dp::new(380.0))
+    .width(Dp::new(PANEL_WIDTH))
     .align(ViewAlign::Stretch)
     .gap(Dp::new(8.0));
 

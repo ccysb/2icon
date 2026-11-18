@@ -15,6 +15,9 @@ pub const ICO_SIZE_LIMIT: u32 = 256;
 /// ICO 内恒定写入的标准尺寸阶梯（Windows 图标规范常用档位）
 pub const ICO_STANDARD_SIZES: [u32; 8] = [256, 128, 96, 64, 48, 32, 24, 16];
 
+/// “高质量图标”的最小边长：低于这个尺寸的帧在过滤模式下不展示
+pub const HIGH_QUALITY_MIN: u32 = 128;
+
 /// 自定义尺寸允许范围
 pub const SIZE_MIN: u32 = 16;
 /// 自定义尺寸允许范围

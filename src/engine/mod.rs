@@ -54,11 +54,18 @@ pub fn load_icons(path: &str, quality_filter: bool) -> Result<Vec<IconEntry>, St
 }
 
 fn load_from_binary(path: &str, quality_filter: bool) -> Result<Vec<IconEntry>, String> {
-    let extracted = resource::extract_icons(std::path::Path::new(path), quality_filter)?;
-    if extracted.is_empty() {
-        return Err("文件中没有找到图标资源".to_string());
+    let extraction = resource::extract_icons(std::path::Path::new(path), quality_filter)?;
+    if extraction.icons.is_empty() {
+        // 完全没有图标资源才算失败；只是被 128 门槛挡光则返回空列表，
+        // 由界面在状态栏提示怎么看到全部帧，不弹错误框。
+        return if extraction.total == 0 {
+            Err("文件中没有找到图标资源".to_string())
+        } else {
+            Ok(Vec::new())
+        };
     }
-    Ok(extracted
+    Ok(extraction
+        .icons
         .into_iter()
         .map(|icon| entry_from_image(icon.image, icon.bit_label))
         .collect())

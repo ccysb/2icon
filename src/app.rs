@@ -298,7 +298,16 @@ pub fn load_input(data: &mut AppData, path: String) -> Result<(), String> {
         Ok(icons) => {
             let count = icons.len();
             data.set_icons(icons);
-            data.status = format!("{count}个图标 | 完成");
+            data.status = if count == 0 {
+                // 过滤门槛挡光了：不报错，直接告诉用户怎么看到全部
+                format!(
+                    "没有 {}x{} 及以上的图标 | 可取消勾选「仅显示高质量图标」",
+                    model::HIGH_QUALITY_MIN,
+                    model::HIGH_QUALITY_MIN
+                )
+            } else {
+                format!("{count}个图标 | 完成")
+            };
             Ok(())
         }
         Err(err) => {
