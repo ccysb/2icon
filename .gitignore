@@ -11,3 +11,4 @@ wheels/
 
 # Cairo native DLLs (downloaded from MSYS2)
 dlls/
+/.workbuddy/

@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import io
 import os
 import threading
 import tempfile
@@ -27,6 +28,35 @@ except ImportError:
 
 # 常用常量（消除散落各处的重复字面量）
 ICON_PRESET_SIZES = [16, 32, 48, 64, 96, 128, 256, 512]
+# ICO 容器单帧上限：目录项的宽高字段只有 1 字节，0 代表 256，故最大 256
+ICO_SIZE_LIMIT = 256
+# ICO 内恒定写入的标准尺寸阶梯（Windows 图标规范常用档位）
+ICO_STANDARD_SIZES = [256, 128, 96, 64, 48, 32, 24, 16]
+# 256 档是否用 PNG 编码。
+#   True  —— 体积小（整包约 140KB），但 PNG 条目只被 Windows Vista+ 等
+#            支持它的解析器识别；.NET System.Drawing.Icon、部分资源编辑器
+#            /图标编辑器只认 DIB 条目，会跳过 256 帧，最大只剩 128。
+#   False —— 全部 DIB 编码（整包约 400KB），任何解析器都能看到完整的 256。
+# 本工具的输出常被拿去喂别的 Windows 程序，故默认兼容优先。
+ICO_USE_PNG_FOR_256 = False
+
+
+def build_ico_size_ladder(preferred_size):
+    """返回 ICO 内要写入的尺寸列表（从大到小）。
+
+    阶梯恒以标准集合为基准，绝不因为“源图很小”或“当前输出尺寸很小”而
+    裁掉大尺寸——否则导出的 ICO 会退化成只剩一个 16x16 帧的单帧文件。
+    用户选中的尺寸若不是标准档（例如自定义 200），额外补入。
+    """
+    sizes = set(ICO_STANDARD_SIZES)
+    try:
+        preferred = int(preferred_size)
+    except (TypeError, ValueError):
+        preferred = ICO_SIZE_LIMIT
+    preferred = min(max(preferred, 16), ICO_SIZE_LIMIT)
+    if preferred not in sizes:
+        sizes.add(preferred)
+    return sorted(sizes, reverse=True)
 BIT_DEPTH_INFO = {
     "RGBA": "32位RGBA",
     "RGB": "24位RGB",
@@ -1357,34 +1387,32 @@ class ImageToIcoConverter(TkinterDnD.Tk):
             img = img.resize((target_w, target_h), Image.LANCZOS)
             self.after(0, lambda: self.progress_bar.set(0.8))
             # 根据选择的格式保存文件
+            detail = ""
             if fmt == "ICO":
                 # 获取原始图标（不缩放），构建多尺寸ICO
                 original_img = self.icon_list[icon_index]
                 if original_img.mode != 'RGBA':
                     original_img = original_img.convert('RGBA')
-                
-                # ICO始终包含从16到目标尺寸的所有标准尺寸
-                base_size = target_w
-                standard_sizes = [256, 128, 96, 64, 48, 32, 24, 16]
-                ico_sizes = [s for s in standard_sizes if s <= max(base_size, 256)]
-                if not ico_sizes:
-                    ico_sizes = [base_size]
-                ico_sizes.sort(reverse=True)
-                
-                # 为每个尺寸生成缩放版本
-                ico_frames = []
-                for w, h in [(s, s) for s in ico_sizes]:
-                    frame = original_img.resize((w, h), Image.LANCZOS)
-                    ico_frames.append(frame)
-                
-                # 保存ICO（第一帧为主帧，其余通过append_images）
-                ico_frames[0].save(
-                    output_file,
-                    format="ICO",
-                    append_images=ico_frames[1:],
-                    sizes=[(f.width, f.height) for f in ico_frames],
-                )
-                    
+
+                # 尺寸阶梯与源图/当前所选尺寸无关：恒为标准阶梯
+                # （此前以“所选尺寸”为上限，源图或默认尺寸为 16 时阶梯塌成
+                #  [16]，这正是导出结果只剩一个 16x16 帧的根因）
+                ico_sizes = build_ico_size_ladder(target_w)
+
+                # 为每个尺寸生成缩放版本（从大到小，最大排在最前）
+                ico_frames = [
+                    (s, original_img.resize((s, s), Image.LANCZOS)) for s in ico_sizes
+                ]
+
+                # 手动写入多尺寸 ICO，保证最大尺寸作为首个条目
+                self._save_multisize_ico(output_file, ico_frames)
+
+                # 回读校验，把实际写入的尺寸反馈给用户，避免“以为只有小图”
+                written = self._read_ico_sizes(output_file) or ico_sizes
+                detail = "\n包含尺寸: " + ", ".join(f"{s}x{s}" for s in written)
+                if target_w > ICO_SIZE_LIMIT:
+                    detail += f"\n（ICO 单帧上限 {ICO_SIZE_LIMIT}，大图已按 {ICO_SIZE_LIMIT} 输出）"
+
             elif fmt == "PNG":
                 img.save(output_file, format="PNG", optimize=True)
             elif fmt == "WEBP":
@@ -1392,7 +1420,7 @@ class ImageToIcoConverter(TkinterDnD.Tk):
                 img.save(output_file, format="WEBP", quality=quality)
             self.after(0, lambda: self.progress_bar.set(1.0))
             self.status.set(f"保存完成: {output_file}")
-            messagebox.showinfo("成功", f"图标已成功保存到:\n{output_file}")
+            messagebox.showinfo("成功", f"图标已成功保存到:\n{output_file}{detail}")
         except Exception as e:
             self.status.set(f"保存失败: {str(e)}")
             messagebox.showerror("错误", f"保存过程中出现错误:\n{str(e)}")
@@ -1414,6 +1442,95 @@ class ImageToIcoConverter(TkinterDnD.Tk):
         img = self.icon_list[icon_index]
         img = img.resize((target_w, target_h), Image.LANCZOS).convert("RGBA")
         return img, fmt
+
+    def _encode_ico_frame(self, img):
+        """把单帧图像编码为 ICO 内部数据（默认一律 DIB/BMP）。
+
+        PNG 压缩条目只被 Windows Vista+ 和支持它的解析器识别：.NET
+        System.Drawing.Icon、rsrc 类工具、不少图标编辑器都会忽略它，
+        于是最大尺寸被“看不见”，表现为想导 256 却只剩 128。
+        故默认走 DIB，兼容性优先；需要小体积时把 ICO_USE_PNG_FOR_256 置 True。
+        """
+        w, h = img.size
+        if ICO_USE_PNG_FOR_256 and w >= ICO_SIZE_LIMIT:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG", optimize=True)
+            return buf.getvalue()
+
+        rgba = img.convert("RGBA")
+        pixels = rgba.tobytes()  # 行序自上而下，每像素 RGBA
+        # XOR 位图：BGRA、行序自下而上
+        rows = []
+        stride = w * 4
+        for y in range(h - 1, -1, -1):
+            row = bytearray(pixels[y * stride:(y + 1) * stride])
+            row[0::4], row[1::4], row[2::4] = row[2::4], row[1::4], row[0::4]
+            rows.append(bytes(row))
+        xor_bitmap = b"".join(rows)
+        # AND 掩码：1bpp，行按 4 字节对齐；32 位用 alpha 通道，故全 0 即可
+        mask_stride = ((w + 31) // 32) * 4
+        and_mask = b"\x00" * (mask_stride * h)
+
+        header = struct.pack(
+            "<IiiHHIIiiII",
+            40,          # biSize
+            w,           # biWidth
+            h * 2,       # biHeight：XOR 位图 + AND 掩码（两倍高）
+            1,           # biPlanes
+            32,          # biBitCount
+            0,           # biCompression = BI_RGB
+            0, 0, 0, 0, 0,
+        )
+        return header + xor_bitmap + and_mask
+
+    def _save_multisize_ico(self, output_file, frames):
+        """手动写入多尺寸 ICO。
+
+        PIL 的 ICO 保存会把条目固定重排成从小到大（16 在最前），
+        导致部分查看器只显示首个 16x16 帧；这里自写容器，保持传入顺序
+        （最大尺寸排在最前），并对每帧选择最兼容的编码方式。
+
+        frames: [(size, PIL.Image), ...]，按写入顺序排列。
+        返回实际写入的尺寸列表。
+        """
+        count = len(frames)
+        header = struct.pack("<HHH", 0, 1, count)
+        entries = b""
+        data = b""
+        offset = 6 + count * 16  # 目录项紧跟在文件头之后
+        for size, img in frames:
+            blob = self._encode_ico_frame(img)
+            # 目录项的宽高字段为 1 字节：256 用 0 表示
+            dim = 0 if size >= ICO_SIZE_LIMIT else size
+            entries += struct.pack(
+                "<BBBBHHII", dim, dim, 0, 0, 1, 32, len(blob), offset
+            )
+            data += blob
+            offset += len(blob)
+
+        with open(output_file, "wb") as fp:
+            fp.write(header + entries + data)
+        return [size for size, _ in frames]
+
+    def _read_ico_sizes(self, path):
+        """回读 ICO 目录，返回实际存在的尺寸列表（用于保存后自检）"""
+        try:
+            with open(path, "rb") as fp:
+                raw = fp.read(6)
+                if len(raw) < 6:
+                    return []
+                _, _, count = struct.unpack("<HHH", raw)
+                sizes = []
+                for _ in range(count):
+                    entry = fp.read(16)
+                    if len(entry) < 16:
+                        break
+                    w, h = entry[0] or 256, entry[1] or 256
+                    sizes.append(w if w == h else min(w, h))
+                return sorted(set(sizes), reverse=True)
+        except Exception as e:
+            print(f"提示: 读取 ICO 尺寸失败: {e}")
+            return []
 
     def copy_icon(self):
         """将当前选中的图标复制到剪贴板"""
