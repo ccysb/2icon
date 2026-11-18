@@ -1,28 +1,28 @@
 name: Build Windows EXE
 
 # 触发条件：
-#   1. 推送代码到主分支（main）
-#   2. 推送版本标签（v*，如 v1.0.0）
-#   3. 发布 Release（published）
+#   1. 推送代码到主分支（main）—— 自动打版本标签并创建 Release
+#   2. 推送版本标签（v*，如 v1.1.0）—— 用该标签创建 Release
+# 说明：此前只在 release:published 事件里挂载资源，而仓库从未创建过 Release，
+#      因此 Releases 页面始终为空；现在由本工作流负责创建 Release。
 on:
   push:
     branches: [main]
     tags: ['v*']
-  release:
-    types: [published]
 
 # 编译目标平台：仅 Windows (windows-latest, x64)
 # 单文件打包方式：PyInstaller --onefile --windowed
 # 产物命名规则：
 #   - 生成的单文件可执行程序固定命名为 2icon.exe
 #   - 构建产物（Artifact）命名为 2icon-windows-x64
-#   - 附加到 Release 的资源文件名固定为 2icon.exe
+#   - Release 资源文件名固定为 2icon.exe
+#   - 主分支构建的版本标签形如 v20261118.42（日期 + run_number）
 
 jobs:
   build-windows:
     name: Build single-file EXE (Windows x64)
     runs-on: windows-latest
-    # 上传 Release 资产需要向 GITHUB_TOKEN 授予仓库内容写权限
+    # 创建 Release / 打标签需要向 GITHUB_TOKEN 授予仓库内容写权限
     permissions:
       contents: write
 
@@ -69,9 +69,27 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # 仅当发布 Release 时，将单文件 exe 附加到 Release 资源
-      - name: Attach EXE to Release
-        if: github.event_name == 'release'
+      # 版本标签：推标签就用该标签名；推主分支则按「日期.run_number」自动生成
+      - name: Determine release tag
+        id: release_tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="v$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "本次发布标签: ${tag}"
+
+      # 创建/更新 Release 并附上 exe（标签不存在时由 action 自动创建）
+      - name: Publish Release with EXE
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          name: ${{ steps.release_tag.outputs.tag }}
           files: dist/2icon.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
