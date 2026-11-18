@@ -68,6 +68,13 @@ jobs:
       - name: Verify exe icon resource
         shell: pwsh
         run: |
+          Get-ChildItem target/release/build -Directory -Filter 'icon-tool-*' | ForEach-Object {
+            $log = Join-Path $_.FullName 'output'
+            if (Test-Path $log) { Write-Host "== build script output"; Get-Content $log }
+            $res = Join-Path $_.FullName 'out/app-icon.res'
+            if (Test-Path $res) { Write-Host "app-icon.res: $((Get-Item $res).Length) 字节" }
+            else { Write-Host "app-icon.res: 缺失" }
+          }
           python tools/pe_resources.py dist/2icon.exe
           if ($LASTEXITCODE -ne 0) {
             Write-Error "dist/2icon.exe 缺少 RT_GROUP_ICON 图标资源"
