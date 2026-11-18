@@ -1,0 +1,7 @@
+# 开发期界面探查脚本的依赖（ui_probe.py / drop_probe.py / screens.py）
+#
+# 安装：
+#   pip install -r tools/requirements.txt
+#
+# 这些脚本只用于本地验证界面与输入链路，不参与应用构建。
+Pillow>=10.0

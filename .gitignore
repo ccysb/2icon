@@ -1,3 +1,6 @@
+# Rust 构建产物
+/target
+
 # Python-generated files
 __pycache__/
 *.py[oc]
