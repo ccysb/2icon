@@ -12,7 +12,7 @@
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows-0078D6">
   <img alt="rust" src="https://img.shields.io/badge/rust-2021-DEA584">
   <img alt="ui" src="https://img.shields.io/badge/UI-ZSUI-4B8BBE">
-  <img alt="size" src="https://img.shields.io/badge/binary-4.8MB-informational">
+  <img alt="size" src="https://img.shields.io/badge/binary-5MB-informational">
 </p>
 
 ---
@@ -139,9 +139,17 @@ pip install -r tools/requirements.txt
 python tools/ui_probe.py status      # 截取当前界面
 python tools/drop_probe.py logo.png  # 模拟一次文件拖放
 python tools/screens.py              # 重新生成 README 截图
+python tools/make_icon.py            # 由 logo.png 重新生成多尺寸 logo.ico
 ```
 
 ## 更新日志
+
+### v2.2
+
+- 修复编译出的 exe 图标看起来是空白：`logo.ico` 原先只有一帧 256×256，系统在小尺寸处只能缩放，白色半区与浅色背景糊成一片。改为 `16 / 24 / 32 / 48 / 64 / 128 / 256` 七帧，并给圆盘补一圈细描边，资源管理器与任务栏都会直接取用对应尺寸
+- 「编译后 exe 没有图标」的最终修复：`build.rs` 编进 PE 资源段的图标已是多帧，`RT_GROUP_ICON` 里能看到完整阶梯
+- 右侧预览图上下各留一段空白，不再与「自定义尺寸」行、「输出格式」标题贴在一起
+- 窗口尺寸收到 800×670，与收窄后的右侧面板相配
 
 ### v2.1
 

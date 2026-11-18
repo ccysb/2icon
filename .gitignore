@@ -1,8 +1,10 @@
 # Rust 构建产物
 /target
 
-# 界面探针的临时截图
+# 界面/图标探针的临时产物
 /probe_*.png
+/shell-icon-*.png
+/exe-icon-*.png
 
 # Python-generated files
 __pycache__/

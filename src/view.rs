@@ -23,14 +23,14 @@ const TILE_HEIGHT: f32 = 128.0;
 const PANEL_WIDTH: f32 = 344.0;
 /// 自定义尺寸输入框宽度（剩余宽度留给两个按钮）
 const CUSTOM_BOX_WIDTH: f32 = 54.0;
+/// 预览图上下留白：预览框本身是方的，紧贴相邻行会显得挤
+const PREVIEW_PADDING: f32 = 14.0;
 
 fn preset_row(sizes: &[u32], current: u32) -> ViewNode<Msg> {
     let cells = sizes
         .iter()
         .map(|size| {
             radio_button(format!("{size}x{size}"), current == *size)
-                // 单选项自带 120dp 的默认最小宽度，四个就把整栏顶宽了；
-                // 改给固定宽度，一行四个刚好落在收窄后的面板里
                 // radio 自带 120dp 最小宽度，不清掉四个就会把整栏顶宽；
                 // 清掉后交给 flex 均分，正好铺满收窄后的面板
                 .min_width(Dp::new(0.0))
@@ -210,6 +210,8 @@ fn control_panel(app: &App) -> ViewNode<Msg> {
     let preview_row = row([preview])
         .justify(ViewJustify::Center)
         .height(Dp::new(preview_size));
+    // 上下各垫一段空白：预览框紧贴相邻行会显得挤
+    let preview_gap = || canvas(ZsCanvasScene::new()).height(Dp::new(PREVIEW_PADDING));
 
     let format_row = row(Format::ALL
         .iter()
@@ -250,7 +252,9 @@ fn control_panel(app: &App) -> ViewNode<Msg> {
         size_rows[0].clone(),
         size_rows[1].clone(),
         custom_row,
+        preview_gap(),
         preview_row,
+        preview_gap(),
         text("输出格式"),
         format_row,
         quality_row,

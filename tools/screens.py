@@ -45,6 +45,8 @@ def main():
         probe.shot(hwnd, "screenshot-dark.png")
         os.replace(os.path.join(probe.ROOT, "screenshot-dark.png"), dark)
         probe.click(hwnd, "theme")
+        # 切主题后合成表面要慢一帧，立刻截图会拍到旧配色
+        time.sleep(0.8)
         probe.shot(hwnd, "screenshot-light.png")
         os.replace(os.path.join(probe.ROOT, "screenshot-light.png"), light)
         print("已生成:", dark, light)

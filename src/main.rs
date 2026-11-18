@@ -19,9 +19,9 @@ use zsui::{native_window, UiInvalidationHandle, ZsuiResult};
 /// 窗口标题（同时用于定位本进程主窗口）
 pub(crate) const WINDOW_TITLE: &str = "图像/文件图标提取工具";
 /// 固定窗口宽度
-const WINDOW_WIDTH: u32 = 1000;
+const WINDOW_WIDTH: u32 = 800;
 /// 固定窗口高度
-const WINDOW_HEIGHT: u32 = 700;
+const WINDOW_HEIGHT: u32 = 670;
 
 /// 编译进二进制的应用图标：单文件分发时没有外部 `logo.ico` 可用
 const EMBEDDED_LOGO: &[u8] = include_bytes!("../logo.ico");
