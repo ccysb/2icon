@@ -29,6 +29,9 @@ def walk(data, base, off, depth, path, found):
 
 
 def main(path):
+    # CI 的 Python 默认用 cp1252 写 stdout，中文会直接抛 UnicodeEncodeError
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     data = open(path, "rb").read()
     pe = u32(data, 0x3C)
     assert data[pe : pe + 4] == b"PE\0\0", "不是 PE 文件"

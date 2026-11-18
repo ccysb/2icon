@@ -67,6 +67,8 @@ jobs:
       # 换 runner 镜像后若三者都缺失，构建会静默退化，这里把它变成硬失败
       - name: Verify exe icon resource
         shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           Get-ChildItem target/release/build -Directory -Filter 'icon-tool-*' | ForEach-Object {
             $log = Join-Path $_.FullName 'output'
