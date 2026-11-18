@@ -108,11 +108,6 @@ impl IconEntry {
     pub fn size_text(&self) -> String {
         format!("{}x{}", self.width, self.height)
     }
-
-    /// 列表里两行文本：“256x256\n32位RGBA”
-    pub fn caption(&self) -> String {
-        format!("{}\n{}", self.size_text(), self.bit_label)
-    }
 }
 
 /// 生成默认输出路径：与输入同目录、同基名，扩展名跟随当前格式。

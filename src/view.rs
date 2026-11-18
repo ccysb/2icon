@@ -1,14 +1,16 @@
 //! 界面声明（ZSUI 的 `view` 纯函数：只读状态，返回声明树）。
 
 use zsui::{
-    button, checkbox, column, image_preview, radio_button, row, scroll, slider, text, textbox,
-    toggle, Dp, SliderRange, ThemeColorToken, ViewAlign, ViewNode, ZsImageFit, ZsuiThemeMode,
+    button, canvas, checkbox, column, image_preview, radio_button, row, scroll, slider, text,
+    textbox, toggle, ColorRole, Dp, HorizontalAlign, NativeDrawFill, SemanticTextStyle,
+    SliderRange, ThemeColorToken, ViewAlign, ViewJustify, ViewNode, ZsCanvasPrimitive,
+    ZsCanvasRect, ZsCanvasScene, ZsImageFit, ZsuiThemeMode,
 };
 
 use crate::app::{App, Msg};
 use crate::model::{Format, PRESET_SIZES, THUMB_SIZE};
 
-/// 网格列数（窗口宽度固定，5 列可在左栏完整排布）
+/// 网格列数（窗口宽度固定，4 列可在左栏完整排布）
 const GRID_COLUMNS: usize = 4;
 /// 单个格子宽度
 const TILE_WIDTH: f32 = 96.0;
@@ -19,10 +21,12 @@ fn preset_row(sizes: &[u32], current: u32) -> ViewNode<Msg> {
     let cells = sizes
         .iter()
         .map(|size| {
-            radio_button(format!("{size}x{size}"), current == *size).on_choose(Msg::Preset(*size))
+            radio_button(format!("{size}x{size}"), current == *size)
+                .flex(1.0)
+                .on_choose(Msg::Preset(*size))
         })
         .collect::<Vec<_>>();
-    row(cells).gap(Dp::new(10.0)).height(Dp::new(24.0))
+    row(cells).gap(Dp::new(6.0)).height(Dp::new(26.0))
 }
 
 fn tile(app: &App, index: usize) -> ViewNode<Msg> {
@@ -32,50 +36,93 @@ fn tile(app: &App, index: usize) -> ViewNode<Msg> {
     };
     let selected = data.selected == index;
     let snapshot = data.thumb_snapshot(index);
-    let caption = if selected {
-        format!("● {}", icon.caption())
-    } else {
-        icon.caption()
-    };
+    let size_text = icon.size_text();
+    let bit_label = icon.bit_label.clone();
     drop(data);
 
-    let mut children: Vec<ViewNode<Msg>> = Vec::new();
+    // 说明文字直接画进 scene：`text` 节点会拿到自动 WidgetId 并抢走命中，
+    // 点文字就选不中，所以格子内部只保留 image_preview 这一个子节点。
+    let mut size_style = SemanticTextStyle::body();
+    size_style.horizontal_align = HorizontalAlign::Center;
+    let mut bit_style = size_style;
+    bit_style.color = ColorRole::SecondaryText;
+    let caption_width = TILE_WIDTH - 4.0;
+
+    let mut scene = ZsCanvasScene::new();
+    if selected {
+        // 选中态用强调色薄片打底，深浅两套主题下都能看清
+        scene.push(ZsCanvasPrimitive::round_fill(
+            ZsCanvasRect::new(
+                Dp::new(0.0),
+                Dp::new(0.0),
+                Dp::new(TILE_WIDTH),
+                Dp::new(TILE_HEIGHT),
+            ),
+            NativeDrawFill::RoleWithAlpha {
+                role: ColorRole::Accent,
+                alpha: 48,
+            },
+            Dp::new(8.0),
+        ));
+    }
+    let scene = scene
+        .with(ZsCanvasPrimitive::text(
+            size_text,
+            ZsCanvasRect::new(
+                Dp::new(2.0),
+                Dp::new(82.0),
+                Dp::new(caption_width),
+                Dp::new(16.0),
+            ),
+            size_style,
+        ))
+        .with(ZsCanvasPrimitive::text(
+            bit_label,
+            ZsCanvasRect::new(
+                Dp::new(2.0),
+                Dp::new(99.0),
+                Dp::new(caption_width),
+                Dp::new(16.0),
+            ),
+            bit_style,
+        ));
+
+    let mut content: Vec<ViewNode<Msg>> = Vec::new();
     if let Some(snapshot) = snapshot {
-        children.push(
+        content.push(
             image_preview(&snapshot)
                 .width(Dp::new(THUMB_SIZE as f32))
                 .height(Dp::new(THUMB_SIZE as f32))
                 .image_fit(ZsImageFit::Contain),
         );
     }
-    children.push(
-        button(caption)
-            .on_click(Msg::Select(index))
-            .width(Dp::new(TILE_WIDTH - 12.0)),
-    );
 
-    column(children)
-        .gap(Dp::new(2.0))
-        .padding(Dp::new(4.0))
+    // 整块可点：ZSUI 的 `on_click` 只对 Button 与 Canvas 生效，而 Button 自带
+    // 平台 bezel 会盖住缩略图。这里用 Canvas 当命中层，缩略图作为它的子节点
+    // 叠在上层，于是点图标或点文字都能选中。
+    canvas(scene)
+        .on_click(Msg::Select(index))
         .width(Dp::new(TILE_WIDTH))
         .height(Dp::new(TILE_HEIGHT))
-        // 选中项用抬升色块表达，其余与页面同色（保持“无格子背景”）
-        .bg(if selected {
-            ThemeColorToken::SurfaceRaised
-        } else {
-            ThemeColorToken::Surface
-        })
+        // 底色与页面一致，保持“无格子背景”；选中态由 scene 自己画
+        .bg(ThemeColorToken::Surface)
+        .children([column(content)
+            .padding(Dp::new(6.0))
+            .align(ViewAlign::Center)
+            .justify(ViewJustify::Start)])
 }
 
 fn icon_grid(app: &App) -> ViewNode<Msg> {
-    let (count, selected_index) = {
+    let count = {
         let data = app.read();
-        (data.icons.len(), data.selected)
+        data.icons.len()
     };
 
     if count == 0 {
         return column([text("尚未加载图标：可选择文件或把文件拖进窗口")])
             .padding(Dp::new(12.0))
+            .align(ViewAlign::Center)
+            .justify(ViewJustify::Center)
             .flex(1.0);
     }
 
@@ -84,14 +131,18 @@ fn icon_grid(app: &App) -> ViewNode<Msg> {
     while index < count {
         let end = (index + GRID_COLUMNS).min(count);
         let cells = (index..end).map(|i| tile(app, i)).collect::<Vec<_>>();
-        rows.push(row(cells).gap(Dp::new(4.0)).height(Dp::new(TILE_HEIGHT)));
+        rows.push(
+            row(cells)
+                .gap(Dp::new(6.0))
+                .height(Dp::new(TILE_HEIGHT))
+                .justify(ViewJustify::Center),
+        );
         index = end;
     }
     let row_count = rows.len();
-    let content_height = (row_count as f32) * (TILE_HEIGHT + 4.0) + 8.0;
+    let content_height = (row_count as f32) * (TILE_HEIGHT + 6.0) + 8.0;
 
-    let _ = selected_index;
-    scroll(column(rows).gap(Dp::new(4.0)))
+    scroll(column(rows).gap(Dp::new(6.0)))
         .content_height(Dp::new(content_height))
         .flex(1.0)
 }
@@ -100,40 +151,35 @@ fn icon_grid(app: &App) -> ViewNode<Msg> {
 fn control_panel(app: &App) -> ViewNode<Msg> {
     let data = app.read();
 
+    // 尺寸单选按参考布局排成 4 列 2 行
     let size_rows: Vec<ViewNode<Msg>> = vec![
-        preset_row(&PRESET_SIZES[..3], data.width),
-        preset_row(&PRESET_SIZES[3..6], data.width),
-        preset_row(&PRESET_SIZES[6..], data.width),
+        preset_row(&PRESET_SIZES[..4], data.width),
+        preset_row(&PRESET_SIZES[4..], data.width),
     ];
 
-    let custom_input_row = row([
-        text("自定义:"),
-        textbox(&data.custom_w)
-            .width(Dp::new(52.0))
-            .on_change(Msg::CustomW),
+    // 标签、输入框、应用、默认收在同一行（输入框均分剩余宽度）
+    let custom_row = row([
+        text("自定义尺寸:").width(Dp::new(100.0)),
+        textbox(&data.custom_w).flex(1.0).on_change(Msg::CustomW),
         text("x"),
-        textbox(&data.custom_h)
-            .width(Dp::new(52.0))
-            .on_change(Msg::CustomH),
+        textbox(&data.custom_h).flex(1.0).on_change(Msg::CustomH),
+        button("应用")
+            .width(Dp::new(48.0))
+            .on_click(Msg::ApplyCustom),
+        button("默认").width(Dp::new(48.0)).on_click(Msg::ResetSize),
     ])
     .gap(Dp::new(6.0))
     .height(Dp::new(28.0));
 
-    let custom_action_row = row([
-        button("应用").flex(1.0).on_click(Msg::ApplyCustom),
-        button("默认").flex(1.0).on_click(Msg::ResetSize),
-    ])
-    .gap(Dp::new(6.0))
-    .height(Dp::new(28.0));
-
+    let preview_size = 140.0;
     let preview = match data.preview_snapshot() {
         Some(snapshot) => image_preview(&snapshot)
-            .width(Dp::new(120.0))
-            .height(Dp::new(120.0))
+            .width(Dp::new(preview_size))
+            .height(Dp::new(preview_size))
             .image_fit(ZsImageFit::Contain),
         None => column([text("（无预览）")])
-            .height(Dp::new(120.0))
-            .width(Dp::new(120.0)),
+            .height(Dp::new(preview_size))
+            .width(Dp::new(preview_size)),
     };
 
     let format_row = row(Format::ALL
@@ -169,9 +215,7 @@ fn control_panel(app: &App) -> ViewNode<Msg> {
         text("输出尺寸"),
         size_rows[0].clone(),
         size_rows[1].clone(),
-        size_rows[2].clone(),
-        custom_input_row,
-        custom_action_row,
+        custom_row,
         preview,
         text("输出格式"),
         format_row,

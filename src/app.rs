@@ -87,7 +87,8 @@ impl AppData {
                 "原始: {}x{} | {}\n输出: {}x{}",
                 icon.width, icon.height, icon.bit_label, self.width, self.height
             ),
-            None => String::new(),
+            // 空列表也给两行占位，右侧面板高度不会跟着跳动
+            None => "原始: -\n输出: -".to_string(),
         }
     }
 
